@@ -12,12 +12,16 @@
 
 #include <php.h>
 #include <Zend/zend.h>
-#include <Zend/zend_types.h>
 #include <Zend/zend_modules.h>
 #include <Zend/zend_operators.h>
 
+#define PHP_BEANSPEAK_VERSION		"1.0.0"
+#define PHP_BEANSPEAK_EXTNAME		"beanspeak"
+#define PHP_BEANSPEAK_AUTHOR		"Serghei Iakovlev"
+#define PHP_BEANSPEAK_DESCRIPTION	"A PHP client library for the beanstalkd queue server."
+
 #ifdef HAVE_STDINT_H
-#include <stdint.h>
+#	include <stdint.h>
 #else
 typedef __int16 int16_t;
 typedef unsigned __int16 int16_t;
@@ -28,99 +32,34 @@ typedef unsigned __int64 uint64_t;
 #endif
 
 #ifdef HAVE_STDBOOL_H
-#include <stdbool.h>
+#	include <stdbool.h>
 #else
 typedef enum {false = 0, true = 1} bool;
 #endif
 
 #ifdef PHP_WIN32
-#define BEANSPEAK_API __declspec(dllimport)
+#	define PHP_BEANSPEAK_API __declspec(dllimport)
 #elif defined(__GNUC__) && __GNUC__ >= 4
-#define BEANSPEAK_API __attribute__ ((visibility("default")))
+#	define PHP_BEANSPEAK_API __attribute__ ((visibility("default")))
 #elif defined(PHPAPI)
-#define BEANSPEAK_API PHPAPI
+#	define PHP_BEANSPEAK_API PHPAPI
 #else
-#define BEANSPEAK_API
+#	define PHP_BEANSPEAK_API
 #endif
 
-#define BEANSPEAK_INIT_CLASS(name) \
-	int beanspeak_ ##name## _init(INIT_FUNC_ARGS)
+#include "beanspeak/common.h"
+#include "beanspeak/methods.h"
+#include "beanspeak/classes.h"
+#include "beanspeak/properties.h"
 
-/* class/interface registering */
-#define BEANSPEAK_REGISTER_CLASS(ns, cl, lns, n, m, f)					\
-	{																	\
-		zend_class_entry ce;											\
-		memset(&ce, 0, sizeof(zend_class_entry));						\
-		INIT_NS_CLASS_ENTRY(ce, #ns, #cl, m);							\
-		lns## _ ##n## _ce_ptr = zend_register_internal_class(&ce);		\
-		if (UNEXPECTED(!lns## _ ##n## _ce_ptr)) {						\
-			zend_error(E_ERROR, "Class '%s' registration has failed.",	\
-				ZEND_NS_NAME(#ns, #cl));								\
-			return FAILURE;												\
-		}																\
-		lns## _ ##n## _ce_ptr->ce_flags |= f;							\
-	}
-
-/* class/interface registering with parents */
-#define BEANSPEAK_REGISTER_CLASS_EX(ns, cl, lns, n, pce, m, f)						\
-	{																				\
-		zend_class_entry ce;														\
-		if (!pce) {																	\
-			zend_error(E_ERROR, "Can't register class '%s' with null parent.",		\
-				ZEND_NS_NAME(#ns, #cl));											\
-			return FAILURE;															\
-		}																			\
-		memset(&ce, 0, sizeof(zend_class_entry));									\
-		INIT_NS_CLASS_ENTRY(ce, #ns, #cl, m);										\
-		lns## _ ##n## _ce_ptr = zend_register_internal_class_ex(&ce, pce);			\
-		if (UNEXPECTED(!lns## _ ##n## _ce_ptr)) {									\
-			zend_error(E_ERROR,														\
-				"Class to extend '%s' was not found when registering class '%s'.",	\
-				(pce ? ZSTR_VAL(pce->name) : "NULL"), ZEND_NS_NAME(#ns, #cl));		\
-			return FAILURE;															\
-		}																			\
-		lns## _ ##n## _ce_ptr->ce_flags |= f;										\
-	}
-
-#define BEANSPEAK_INIT(name)												\
-	if (beanspeak_ ##name## _init(INIT_FUNC_ARGS_PASSTHRU) == FAILURE) {	\
-		return FAILURE;														\
-	}
-
-#define BEANSPEAK_INIT_FUNCS(class_functions)	\
-	static const zend_function_entry class_functions[] =
-
-#define BEANSPEAK_INIT_THIS()					\
-	zval this_zv;								\
-	zval *this_ptr = getThis();					\
-	if (EXPECTED(this_ptr)) {					\
-		ZVAL_OBJ(&this_zv, Z_OBJ_P(this_ptr));	\
-		this_ptr = &this_zv;					\
-	} else {									\
-		ZVAL_NULL(&this_zv);					\
-		this_ptr = &this_zv;					\
-	}
-
-#define BEANSPEAK_PROPERTY_HANDLER_PROLOG						\
-	zval tmp_member;											\
-	if (Z_TYPE_P(member) != IS_STRING) {						\
-		ZVAL_STR(&tmp_member, zval_get_string_func(member));	\
-		member = &tmp_member;									\
-		cache_slot = NULL;										\
-	}
-
-#define BEANSPEAK_PROPERTY_HANDLER_EPILOG	\
-	if (member == &tmp_member) {			\
-		zval_ptr_dtor_str(&tmp_member);		\
-	}
+zend_object* beanspeak_create_object(zend_class_entry *ce_ptr);
+zend_class_entry *beanspeak_get_exception_ce(beanspeak_exception_type_t type);
+zend_object *beanspeak_throw_exception(beanspeak_exception_type_t type, const char *fmt, ...);
 
 extern zend_module_entry beanspeak_module_entry;
 #define phpext_beanspeak_ptr &beanspeak_module_entry
 
-#define PHP_BEANSPEAK_VERSION		"1.0.0"
-#define PHP_BEANSPEAK_EXTNAME		"beanspeak"
-#define PHP_BEANSPEAK_AUTHOR		"Serghei Iakovlev"
-#define PHP_BEANSPEAK_DESCRIPTION	"A PHP client library for the beanstalkd queue server."
+
 
 #if defined(ZTS) && defined(COMPILE_DL_BEANSPEAK)
 ZEND_TSRMLS_CACHE_EXTERN()

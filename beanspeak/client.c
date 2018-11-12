@@ -8,107 +8,29 @@
  */
 
 #ifdef HAVE_CONFIG_H
-# include "../config.h"
+#	include "../config.h"
 #endif
 
 #include <php.h>
-#include <Zend/zend_operators.h>
 #include <ext/standard/url.h>
 
 #include "../php_beanspeak.h"
-#include "client.h"
-#include "exception.h"
 
-zend_object_handlers beanspeak_client_handlers;
-zend_class_entry *beanspeak_client_ce_ptr;
-
-/* {{{ beanspeak_client_create_object */
-static zend_always_inline beanspeak_client_object_t*
-beanspeak_client_fetch_object(zend_object* obj)
-{
-	return (beanspeak_client_object_t*)((char*)(obj) - XtOffsetOf(beanspeak_client_object_t, zo));
-}
+/* {{{ arginfo */
+ZEND_BEGIN_ARG_INFO_EX(arginfo_beanspeak_client_construct, 0, 0, 0)
+	ZEND_ARG_TYPE_INFO(0, dsn, IS_STRING, 1)
+ZEND_END_ARG_INFO()
 /* }}} */
 
-/* {{{ beanspeak_client_create_object */
-static zend_object*
-beanspeak_client_create_object(zend_class_entry* ce_ptr)
-{
-	beanspeak_client_object_t* intern;
-
-	intern = ecalloc(1, sizeof(beanspeak_client_object_t) + zend_object_properties_size(ce_ptr));
-
-	zend_object_std_init(&intern->zo, ce_ptr);
-	object_properties_init(&intern->zo, ce_ptr);
-
-	intern->zo.handlers = &beanspeak_client_handlers;
-
-	return &intern->zo;
-}
+/* {{{ beanspeak_client_method_entry[] */
+const zend_function_entry beanspeak_client_method_entry[] = {
+	PHP_ME(Beanspeak_Client, __construct, arginfo_beanspeak_client_construct, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+	PHP_FE_END
+};
 /* }}} */
 
-/* {{{ beanspeak_client_create_object */
-static void
-beanspeak_client_object_free(zend_object *object)
-{
-	beanspeak_client_object_t* obj = beanspeak_client_fetch_object(object);
-
-	zval_dtor(&obj->socket);
-	zval_dtor(&obj->watchedTubes);
-
-	if (obj->host) {
-		zend_string_release(obj->host);
-	}
-
-	if (obj->usedTube) {
-		zend_string_release(obj->usedTube);
-	}
-
-	zend_object_std_dtor(&obj->zo);
-}
-/* }}} */
-
-/* {{{ beanspeak_client_init_properties
- * Declare 'Beanspeak\Client' class properties. */
-static void
-beanspeak_client_init_properties(zend_class_entry *ce_ptr)
-{
-	zend_declare_property_null(ce_ptr, ZEND_STRL("socket"), ZEND_ACC_PRIVATE TSRMLS_CC);
-	zend_declare_property_string(ce_ptr, ZEND_STRL("host"), "127.0.0.1", ZEND_ACC_PRIVATE TSRMLS_CC);
-	zend_declare_property_long(ce_ptr, ZEND_STRL("port"), 11300, ZEND_ACC_PRIVATE TSRMLS_CC);
-	zend_declare_property_long(ce_ptr, ZEND_STRL("timeout"), 60, ZEND_ACC_PRIVATE TSRMLS_CC);
-	zend_declare_property_bool(ce_ptr, ZEND_STRL("persistent"), true, ZEND_ACC_PRIVATE TSRMLS_CC);
-	zend_declare_property_string(ce_ptr, ZEND_STRL("usedTube"), "default", ZEND_ACC_PROTECTED TSRMLS_CC);
-	zend_declare_property_null(ce_ptr, ZEND_STRL("watchedTubes"), ZEND_ACC_PROTECTED TSRMLS_CC);
-}
-/* }}} */
-
-/* {{{ beanspeak_Beanspeak_Client_init
- * Create and register 'Beanspeak\Client' class. */
-BEANSPEAK_INIT_CLASS(Beanspeak_Client) {
-	BEANSPEAK_REGISTER_CLASS(Beanspeak, Client, beanspeak, client, beanspeak_client_method_entry, 0);
-
-	beanspeak_client_ce_ptr->create_object = beanspeak_client_create_object;
-
-	memcpy(&beanspeak_client_handlers, zend_get_std_object_handlers(), sizeof(beanspeak_client_handlers));
-
-	/* offset of real object header (usually zero) */
-	beanspeak_client_handlers.offset = (int) XtOffsetOf(beanspeak_client_object_t, zo);
-
-	/* general object functions */
-	beanspeak_client_handlers.free_obj  = beanspeak_client_object_free;
-	beanspeak_client_handlers.dtor_obj  = zend_objects_destroy_object;
-	beanspeak_client_handlers.clone_obj = NULL; /* has no clone implementation */
-
-	beanspeak_client_init_properties(beanspeak_client_ce_ptr);
-
-	return SUCCESS;
-}
-/* }}} */
-
-/* {{{ beanspeak_client_instance */
-static int
-beanspeak_client_initialize(zval *this_ptr, const char *dsn_str, const size_t dsn_len)
+static int /* {{{  */
+client_initialize(zval *this_ptr, const char *dsn_str, const size_t dsn_len)
 {
 	php_url *uri;
 
@@ -118,12 +40,12 @@ beanspeak_client_initialize(zval *this_ptr, const char *dsn_str, const size_t ds
 
 	/* php_url_parse_ex() crashes by processing chars exceed len */
 	if (strlen(dsn_str) != dsn_len) {
-		throw_exception(INVALID_ARGUMENT, "Client DSN contains invalid characters (\\0).");
+		beanspeak_throw_exception(INVALID_ARGUMENT, "Client DSN contains invalid characters (\\0).");
 		return FAILURE;
 	}
 
 	if (!(uri = php_url_parse_ex(dsn_str, dsn_len))) {
-		throw_exception(INVALID_ARGUMENT, "The beanstalkd connection DSN is invalid: '%s'.", dsn_str);
+		beanspeak_throw_exception(INVALID_ARGUMENT, "The beanstalkd connection DSN is invalid: '%s'.", dsn_str);
 		return FAILURE;
 	}
 
@@ -138,14 +60,14 @@ beanspeak_client_initialize(zval *this_ptr, const char *dsn_str, const size_t ds
 #else
 		if (strncasecmp("unix", uri->scheme, sizeof("unix")) == 0) {
 #endif
-			throw_exception(INVALID_ARGUMENT, "Protocol 'unix' currently disabled in Beanspeak Client.");
+			beanspeak_throw_exception(INVALID_ARGUMENT, "Protocol 'unix' currently disabled in Beanspeak Client.");
 			php_url_free(uri);
 			return FAILURE;
 		}
 
 #if PHP_VERSION_ID >= 70300
 		if (strncasecmp("tcp", ZSTR_VAL(uri->scheme), sizeof("tcp")) != 0) {
-			throw_exception(INVALID_ARGUMENT,
+			beanspeak_throw_exception(INVALID_ARGUMENT,
 				"Invalid DSN scheme. Supported schemes are either 'tcp' or 'unix' (disabled), got '%s'.",
 				ZSTR_VAL(uri->scheme)
 			);
@@ -175,7 +97,7 @@ beanspeak_client_initialize(zval *this_ptr, const char *dsn_str, const size_t ds
 		zend_update_property_string(beanspeak_client_ce_ptr, this_ptr, ZEND_STRL("host"), uri->path);
 #endif
 	} else {
-		throw_exception(INVALID_ARGUMENT, "Invalid Client DSN scheme: missed host part.");
+		beanspeak_throw_exception(INVALID_ARGUMENT, "Invalid Client DSN scheme: missed host part.");
 		php_url_free(uri);
 		return FAILURE;
 	}
@@ -193,6 +115,83 @@ beanspeak_client_initialize(zval *this_ptr, const char *dsn_str, const size_t ds
 }
 /* }}} */
 
+/* {{{ socket	mixed
+readonly=yes
+*/
+int
+beanspeak_client_socket_read(beanspeak_object_t *obj, zval *retval)
+{
+	// TODO: not implemented yet
+	ZVAL_NULL(retval);
+	return SUCCESS;
+}
+
+/* {{{ host	string
+readonly=yes
+*/
+int
+beanspeak_client_host_read(beanspeak_object_t *obj, zval *retval)
+{
+	// TODO: not implemented yet
+	ZVAL_NULL(retval);
+	return SUCCESS;
+}
+
+/* {{{ port	int
+readonly=yes
+*/
+int
+beanspeak_client_port_read(beanspeak_object_t *obj, zval *retval)
+{
+	// TODO: not implemented yet
+	ZVAL_NULL(retval);
+	return SUCCESS;
+}
+
+/* {{{ timeout	int
+readonly=yes
+*/
+int
+beanspeak_client_timeout_read(beanspeak_object_t *obj, zval *retval)
+{
+	// TODO: not implemented yet
+	ZVAL_NULL(retval);
+	return SUCCESS;
+}
+
+/* {{{ persistent	bool
+readonly=yes
+*/
+int
+beanspeak_client_persistent_read(beanspeak_object_t *obj, zval *retval)
+{
+	// TODO: not implemented yet
+	ZVAL_NULL(retval);
+	return SUCCESS;
+}
+
+/* {{{ usedTube	string
+readonly=yes
+*/
+int
+beanspeak_client_usedTube_read(beanspeak_object_t *obj, zval *retval)
+{
+	// TODO: not implemented yet
+	ZVAL_NULL(retval);
+	return SUCCESS;
+}
+
+/* {{{ watchedTubes	array
+readonly=yes
+*/
+int
+beanspeak_client_watchedTubes_read(beanspeak_object_t *obj, zval *retval)
+{
+	// TODO: not implemented yet
+	ZVAL_NULL(retval);
+	return SUCCESS;
+}
+
 /* {{{ proto public Beanspeak\Client::__construct([string $dsn = NULL]) */
 PHP_METHOD(Beanspeak_Client, __construct) {
 	char *dsn_str = "";
@@ -206,7 +205,7 @@ PHP_METHOD(Beanspeak_Client, __construct) {
 
 	if (dsn_len != 0) {
 		/* the dsn string was provided. initialize connection options */
-		beanspeak_client_initialize(this_ptr, dsn_str, dsn_len);
+		client_initialize(this_ptr, dsn_str, dsn_len);
 	}
 }
 /* }}} */
